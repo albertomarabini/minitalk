@@ -6,7 +6,7 @@
 /*   By: amarabin <amarabin@student.42.fr>          +#+  +:+       +#+        */
 /*                                                +#+#+#+#+#+   +#+           */
 /*   Created: 2023/08/29 14:21:23 by amarabin          #+#    #+#             */
-/*   Updated: 2023/09/05 01:39:18 by amarabin         ###   ########.fr       */
+/*   Updated: 2023/09/04 14:36:40 by amarabin         ###   ########.fr       */
 /*                                                                            */
 /* ************************************************************************** */
 
@@ -151,6 +151,7 @@ int	ft_wclenb(unsigned char c)
  */
 void	handle_signal(int sig, siginfo_t *info, void *context)
 {
+	unsigned char shift_hack;
 	g_buffer.inactvty_cnt_msc = 0;
 	if(g_buffer.purge_dirty == 1)
 		return ;
@@ -193,7 +194,6 @@ void	handle_signal(int sig, siginfo_t *info, void *context)
 		// if ((g_buffer.expctd_bytes == 0 && !ft_wclenb(g_buffer.currnt_byte))
 		// || (g_buffer.expctd_bytes > 0 && (g_buffer.currnt_byte >> 6) != 2))
 		// {
-		//  unsigned char shift_hack;
 		// 	ft_putstr_fd("shift hack\n",1);
 		// 	print_byte(g_buffer.currnt_byte);
 		// 	shift_hack = (g_buffer.currnt_byte << 1) | (g_buffer.currnt_byte >> 7);
