@@ -13,7 +13,6 @@
  *
  * @param c The first byte of the UTF-8 character.
  * @return The total number of bytes the UTF-8 character.
- *         Returns -1 if c is a null byte ('\0').
  *         Returns 0 if c does not fit any of the UTF-8 encoding schemas.
  */
 

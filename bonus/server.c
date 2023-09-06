@@ -6,11 +6,11 @@
 /*   By: amarabin <amarabin@student.42.fr>          +#+  +:+       +#+        */
 /*                                                +#+#+#+#+#+   +#+           */
 /*   Created: 2023/08/29 14:21:23 by amarabin          #+#    #+#             */
-/*   Updated: 2023/09/05 01:39:18 by amarabin         ###   ########.fr       */
+/*   Updated: 2023/09/06 19:06:10 by amarabin         ###   ########.fr       */
 /*                                                                            */
 /* ************************************************************************** */
 
-#include "../minitalk_bonus.h"
+#include "minitalk_bonus.h"
 
 /**
 * USED FUNCTIONS
@@ -83,13 +83,21 @@
 
 static t_buffer	g_buffer;
 
-void print_byte(char c) {
-    for (int i = 7; i >= 0; i--) {
-        printf("%d", (c >> i) & 1);
-    }
-    printf("\n");
+void	print_byte(unsigned char c)
+{
+	char	bit_str[9];
+	int		i;
+
+	i = 7;
+	while (i >= 0)
+	{
+		bit_str[7 - i] = ((c >> i) & 1) + '0';
+		i--;
+	}
+	bit_str[8] = '\n';
+	write(1, bit_str, 9);
 }
-void	reset_buffer(void)
+void	reset_msg_buffer(void)
 {
 	if (g_buffer.buffr != NULL)
 		free(g_buffer.buffr);
@@ -99,13 +107,13 @@ void	reset_buffer(void)
 	g_buffer.reset_req_sequence = 0;
 	g_buffer.inactvty_cnt_msc = 0;
 	g_buffer.expctd_bytes = 0;
-	g_buffer.purge_dirty = 0;
+	g_buffer.mutex = 0;
 }
 
 void	reset_byte(void)
 {
-	g_buffer.currnt_byte = 0;
-	g_buffer.currnt_bit = 7;
+	g_buffer.signal_buffer = 0;
+	g_buffer.bit_count = 0;
 }
 
 void	extend_buffer(void)
@@ -116,7 +124,7 @@ void	extend_buffer(void)
 	tmp = (char *)malloc((g_buffer.size + 1) * sizeof(char));
 	if (tmp == NULL)
 	{
-		reset_buffer();
+		reset_msg_buffer();
 		exit(1);
 	}
 	if (g_buffer.buffr != NULL)
@@ -127,6 +135,23 @@ void	extend_buffer(void)
 	g_buffer.buffr = tmp;
 }
 
+/**
+ * Determines the number of bytes in a UTF-8 character based on its first byte.
+ * The length of an UTF-8 character is determined by the the bits in the first
+ * byte following this schema:
+ * U+0000   U+007F   -> 0xxxxxxx                            -> 0-127
+ *                mask: 10000000 (or 0x80 in hex) -> 0x80 & c == 0
+ * U+0080   U+07FF   -> 110xxxxx 10xxxxxx                   -> 128-2047
+ *                mask: 11100000 (or 0xE0 in hex) -> 0xE0 & c == 0xC0
+ * U+0800   U+FFFF   -> 1110xxxx 10xxxxxx 10xxxxxx          -> 2048-65535
+ *                mask: 11110000 (or 0xF0 in hex) -> 0xF0 & c == 0xE0
+ * U+10000  U+10FFFF -> 11110xxx 10xxxxxx 10xxxxxx 10xxxxxx -> 65536-1114111
+ *                mask: 11111000 (or 0xF8 in hex) -> 0xF8 & c == 0xF0
+ *
+ * @param c The first byte of the UTF-8 character.
+ * @return The total number of bytes the UTF-8 character.
+ *         Returns 0 if c does not fit any of the UTF-8 encoding schemas.
+ */
 int	ft_wclenb(unsigned char c)
 {
 	if ((c & 0x80) == 0)
@@ -144,158 +169,160 @@ int	ft_wclenb(unsigned char c)
  * SIGNAL HANDLER
  * This function hadles the signal received by the client.
  * the line
- * g_buffer.currnt_byte |= (1 << g_buffer.currnt_bit);
+ * g_buffer.signal_buffer |= (1 << g_buffer.bit_count);
  * will mark a 1 in the byte buffer at the current bit position.
  * at byte completion we check if we need to extend the buffer,
  * we attach the new byte and if it was a '\0' we print the buffer
  */
 void	handle_signal(int sig, siginfo_t *info, void *context)
 {
+	//g_buffer.mutex = 1
 	g_buffer.inactvty_cnt_msc = 0;
-	if(g_buffer.purge_dirty == 1)
-		return ;
+	g_buffer.client_pid = info->si_pid;
 	if (sig == SIGUSR1)
 	{
-		g_buffer.currnt_byte |= (1 << g_buffer.currnt_bit);
+		g_buffer.signal_buffer |= (1U << sizeof(g_buffer.signal_buffer) * 8 - 1
+			- g_buffer.bit_count);
 		g_buffer.reset_req_sequence++;
 	}
 	else
 		g_buffer.reset_req_sequence = 0;
 	if (g_buffer.reset_req_sequence == RESET_SEQUENCE_COUNT)
 	{
-		reset_buffer();
+		reset_msg_buffer();
 		reset_byte();
 		g_buffer.reset_req_sequence = 0; // Reset the counter
-		kill(info->si_pid, SIGUSR1);   // Acknowledge the reset
-		ft_putstr_fd("Reset Acknowledged\n",1);
-		return ;
+		kill(info->si_pid, SIGUSR1);     // Acknowledge the reset
+		ft_putstr_fd("Reset Acknowledged\n", 1);
 	}
-	if (--g_buffer.currnt_bit < 0)
+	g_buffer.bit_count++;//here do i risk a disaster? I sjouldn't: the client is expecting acks at each byte, the only problem might be a reset sequence piling up with a byte transmission...
+	//g_buffer.mutex = 0;
+}
+
+void	process_signal(int main_timer)
+{
+	int	timer;
+	unsigned char current_byte;
+
+	if (g_buffer.bit_count >= 8)
 	{
-		//if a reset byte is perceived gets discarded
-		if(g_buffer.currnt_byte == 0xFF){
-			reset_byte();
+		current_byte = (unsigned char)(g_buffer.signal_buffer >> 8);
+		g_buffer.signal_buffer <<= 8;
+		g_buffer.bit_count -= 8;
+
+		//ft_printf("New Character Expected Bytes: %i\n", g_buffer.expctd_bytes);
+
+		// if a reset byte (as part of the sequence) is perceived gets discarded
+		if (current_byte == 0xFF && g_buffer.reset_req_sequence >= 8)
 			return ;
-		}
-		//Is EOF
-		if (g_buffer.currnt_byte == '\0' && g_buffer.expctd_bytes == 0)
+		// Is a correct EOF
+		if (current_byte == '\0' && g_buffer.expctd_bytes == 0)
 		{
 			// Acknowledge the EOF
-			kill(info->si_pid, SIGUSR1);
-			ft_printf("Result: %s\n", g_buffer.buffr);
-			ft_putstr_fd("Transmission Success\n",1);
-			g_buffer.cmpltd_client_pid = info->si_pid;
-			reset_buffer();
+			kill(g_buffer.client_pid, SIGUSR1);
+			ft_printf("\nResult: %s\n", g_buffer.buffr);
+			ft_putstr_fd("Transmission Success\n", 1);
+			g_buffer.cmpltd_client_pid = g_buffer.client_pid;//?
+			reset_msg_buffer();
 			reset_byte();
 			return ;
 		}
-		//Trying to correct the shift bug
-		// if ((g_buffer.expctd_bytes == 0 && !ft_wclenb(g_buffer.currnt_byte))
-		// || (g_buffer.expctd_bytes > 0 && (g_buffer.currnt_byte >> 6) != 2))
-		// {
-		//  unsigned char shift_hack;
-		// 	ft_putstr_fd("shift hack\n",1);
-		// 	print_byte(g_buffer.currnt_byte);
-		// 	shift_hack = (g_buffer.currnt_byte << 1) | (g_buffer.currnt_byte >> 7);
-		// 	print_byte(shift_hack);
-		// 	if ((g_buffer.expctd_bytes == 0 && ft_wclenb(shift_hack))
-		// 	|| (g_buffer.expctd_bytes > 0 && (shift_hack >> 6) == 2)){
-		// 		g_buffer.currnt_byte = shift_hack;
-		// 		ft_putstr_fd("shift hack go\n",1);
-		// 	}
-		// }
-
-		//failures
-		//is not a header byte or
-		//is not an intermediate byte
-		//ia a null byte but i was expecting something else
-		if ((g_buffer.expctd_bytes == 0 && !ft_wclenb(g_buffer.currnt_byte))
-			|| (g_buffer.expctd_bytes > 0 && (g_buffer.currnt_byte >> 6) != 2)
-			|| (g_buffer.expctd_bytes > 0 && g_buffer.currnt_byte == '\0'))
+		// failures
+		// is not a header byte or
+		// is not an intermediate byte
+		// ia a null byte but i was expecting something else
+		// maybe there is should be something like "if you didn't sent me 8 bit
+		// and you are going into inativity, i will ask you to retransmit again"
+		if ((g_buffer.expctd_bytes == 0 && !ft_wclenb(current_byte))
+			|| (g_buffer.expctd_bytes > 0 && (current_byte >> 6) != 2)
+			|| (g_buffer.expctd_bytes > 0 && current_byte == '\0'))
 		{
-			print_byte(g_buffer.currnt_byte);
+			//g_buffer.mutex = 1;
+			// if ((g_buffer.expctd_bytes == 0 && !ft_wclenb(current_byte)))
+			// 	ft_putstr_fd("Invalid 1",1);
+			// if (g_buffer.expctd_bytes > 0 && (current_byte >> 6) != 2)
+			// 	ft_putstr_fd("Invalid 2",1);
+			// if (g_buffer.expctd_bytes > 0 && current_byte == '\0')
+			// 	ft_putstr_fd("Invalid 3",1);
+			// ft_printf(" Expected Bytes: %i\n", g_buffer.expctd_bytes);
+			ft_putstr_fd("Invalid ",1);
+			print_byte(current_byte);
 			// Acknowledge the invalid byte
-			kill(info->si_pid, SIGUSR2);
+			kill(g_buffer.client_pid, SIGUSR2);
 			// ft_putstr_fd("Invalid Byte Detected\n",1);
-			//print_byte(g_buffer.currnt_byte);
-			reset_byte();
-			g_buffer.purge_dirty= 1;
-			int timer = 0;
-			//we wait to have enough time to purge the buffer from eventual dirty bits
-			while(timer < TRANS_TIMEOUT_TMS * 4)
+			// print_byte(current_byte);
+			//g_buffer.mutex = 1;
+			timer = 0;
+			while (timer < TRANS_TIMEOUT_MCS / 100)
 			{
 				usleep(100); // 1/10 mcs
 				timer++;
 			}
-			//we reset the byte again
+			// we reset the byte again
 			reset_byte();
-			g_buffer.purge_dirty= 0;
-			//we tell the client to restart sending
-			kill(info->si_pid, SIGUSR1);
+			//we roll back the buffer
+			if(g_buffer.expctd_bytes > 0)
+			{
+				while(g_buffer.len >= 0 && !ft_wclenb(g_buffer.buffr[--g_buffer.len]))
+					g_buffer.buffr[g_buffer.len] = '\0';
+				g_buffer.buffr[g_buffer.len] = '\0';
+				g_buffer.expctd_bytes = 0;
+			}
+			//g_buffer.mutex = 0;
+			// we tell the client to restart sending
+			kill(g_buffer.client_pid, SIGUSR1);
 			return ;
 		}
-		//is a valid header
+		// is a valid header we update the number of expected bytes
+		//ft_putstr_fd("Good character\n",1);
+		//ft_printf("Good Character Expected Bytes: %i\n", g_buffer.expctd_bytes);
 		if (g_buffer.expctd_bytes == 0)
-			g_buffer.expctd_bytes = ft_wclenb(g_buffer.currnt_byte);
-		//at this point we have a valid byte
-		// We acknowledge the valid byte
-		kill(info->si_pid, SIGUSR1);
-		//if the buffer is too short we extend it
+			g_buffer.expctd_bytes = ft_wclenb(current_byte);
+		// at this point we have a valid byte
+		// if the result buffer is too short we extend it
 		if (g_buffer.buffr == NULL || g_buffer.size == g_buffer.len)
 			extend_buffer();
-		//we attach the new byte
-		g_buffer.buffr[g_buffer.len++] = g_buffer.currnt_byte;
-		//we null the next one
+		// we attach the new byte at the end of the buffer
+		g_buffer.buffr[g_buffer.len++] = current_byte;
+		// we null the next one
 		g_buffer.buffr[g_buffer.len] = '\0';
-		//we adjust the number of expected bytes
+		// we adjust the number of expected bytes
 		g_buffer.expctd_bytes--;
-		//we reset the byte
-		reset_byte();
+		// We acknowledge the valid byte
+		kill(g_buffer.client_pid, SIGUSR1);
 	}
 }
+
+// while (1)
+// {
+//     // Poll to check if a signal was received
+//     process_signal();
 
 int	main(void)
 {
 	struct sigaction	sa;
+	int main_timer;
 
 	printf("Server PID: %d\n", getpid());
 	reset_byte();
-	reset_buffer();
-	//g_buffer.semaphore = 0;
+	reset_msg_buffer();
 	sa.sa_flags = SA_SIGINFO;
 	sa.sa_sigaction = handle_signal;
 	g_buffer.expctd_bytes = 0;
 	sigaction(SIGUSR1, &sa, NULL);
 	sigaction(SIGUSR2, &sa, NULL);
-    while (1)
-    {
-        // check for inactivity
-		if(g_buffer.inactvty_cnt_msc++ > CLNT_INACTIVITY_TMS)
+	main_timer = 0;
+	while (1)
+	{
+		process_signal(main_timer++);
+		// check for inactivity
+		if (CLNT_INACTIVITY_MCS / 100 < g_buffer.inactvty_cnt_msc++)
 		{
 			reset_byte();
-			reset_buffer();
-			ft_putstr_fd("-",1);
+			reset_msg_buffer();
+			ft_putstr_fd("-", 1);
 		}
-        usleep(100);  // sleep 1/10 mcs
-    }
+		usleep(100); // sleep 1/10 mcs
+	}
 	return (0);
 }
-
-// void	handle_signal(int sig, siginfo_t *info, void *context)
-// {
-// 	if (sig == SIGUSR1)
-// 		g_buffer.currnt_byte |= (1 << g_buffer.currnt_bit);
-// 	if (--g_buffer.currnt_bit < 0)
-// 	{
-// 		if (g_buffer.buffr == NULL || g_buffer.size == g_buffer.len)
-// 			extend_buffer();
-// 		g_buffer.buffr[g_buffer.len] = g_buffer.currnt_byte;
-// 		if (g_buffer.currnt_byte == '\0')
-// 		{
-// 			ft_printf("%s\n", g_buffer.buffr);
-// 			// kill(info->si_pid, SIGUSR1);
-// 			reset_buffer();
-// 		}
-// 		reset_byte();
-// 	}
-// }

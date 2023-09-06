@@ -6,11 +6,11 @@
 /*   By: amarabin <amarabin@student.42.fr>          +#+  +:+       +#+        */
 /*                                                +#+#+#+#+#+   +#+           */
 /*   Created: 2023/08/29 14:21:23 by amarabin          #+#    #+#             */
-/*   Updated: 2023/09/04 14:29:19 by amarabin         ###   ########.fr       */
+/*   Updated: 2023/09/06 13:14:21 by amarabin         ###   ########.fr       */
 /*                                                                            */
 /* ************************************************************************** */
 
-#include "../minitalk_bonus.h"
+#include "minitalk_bonus.h"
 
 static int	g_ack;
 
