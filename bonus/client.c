@@ -6,7 +6,7 @@
 /*   By: amarabin <amarabin@student.42.fr>          +#+  +:+       +#+        */
 /*                                                +#+#+#+#+#+   +#+           */
 /*   Created: 2023/08/29 14:21:23 by amarabin          #+#    #+#             */
-/*   Updated: 2023/09/06 18:54:19 by amarabin         ###   ########.fr       */
+/*   Updated: 2023/09/06 20:09:42 by amarabin         ###   ########.fr       */
 /*                                                                            */
 /* ************************************************************************** */
 
@@ -14,20 +14,7 @@
 
 static int	g_ack;
 
-void	print_byte(unsigned char c)
-{
-	char	bit_str[9];
-	int		i;
 
-	i = 7;
-	while (i >= 0)
-	{
-		bit_str[7 - i] = ((c >> i) & 1) + '0';
-		i--;
-	}
-	bit_str[8] = '\n';
-	write(1, bit_str, 9);
-}
 
 int	ft_wclenb(unsigned char c)
 {
@@ -127,10 +114,6 @@ int	main(int argc, char *argv[])
 			usleep(100); // 1/10 mcs
 			timer++;
 		}
-		// if (i < len - 1)
-		// 	ft_printf("ack:%c %i nack:%i\n", argv[2][i], g_ack, nack);
-		// else
-		// 	ft_printf("EOF ack:%i", g_ack);
 		if (i == len - 1 && g_ack >= 0)
 		{
 			if (g_ack == 1)
@@ -156,19 +139,15 @@ int	main(int argc, char *argv[])
 		}
 		else if (g_ack == 0)
 		{
-			// if (i < len - 1)
-			// 	print_byte(argv[2][i]);
 			nack++;
 			g_ack = -1;
 			timer = 0;
-			// we give enough time to the server to purge the buffer
 			while (g_ack == -1 && TRANS_TIMEOUT_MCS / 100 * 3 > timer++)
-				usleep(100); // 1/10 mcs
-			// at this point the server should have sent us the reckon for restating transmissions
+				usleep(100);
 			if (g_ack == 1)
 				ft_putstr_fd("Server ready for retransmission\n", 1);
 			else
-				ft_putstr_fd("Cross your fngers\n", 1);
+				ft_putstr_fd("Cross your fingers\n", 1);
 			// rollback to the last valid UTF-8 header or the current character if header
 			if (!ft_wclenb(argv[2][i]))
 			{
@@ -183,3 +162,20 @@ int	main(int argc, char *argv[])
 	}
 	return (0);
 }
+/**
+ * DEBUG ITEMS
+ */
+// void	print_byte(unsigned char c)
+// {
+// 	char	bit_str[9];
+// 	int		i;
+
+// 	i = 7;
+// 	while (i >= 0)
+// 	{
+// 		bit_str[7 - i] = ((c >> i) & 1) + '0';
+// 		i--;
+// 	}
+// 	bit_str[8] = '\n';
+// 	write(1, bit_str, 9);
+// }

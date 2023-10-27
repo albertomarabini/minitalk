@@ -6,7 +6,7 @@
 /*   By: amarabin <amarabin@student.42.fr>          +#+  +:+       +#+        */
 /*                                                +#+#+#+#+#+   +#+           */
 /*   Created: 2022/02/21 20:15:54 by prossi            #+#    #+#             */
-/*   Updated: 2023/09/06 19:20:29 by amarabin         ###   ########.fr       */
+/*   Updated: 2023/09/07 11:50:51 by amarabin         ###   ########.fr       */
 /*                                                                            */
 /* ************************************************************************** */
 
@@ -20,7 +20,7 @@
 # include <unistd.h>
 
 # define MAX_NACK 10
-# define TRANS_RATE_MCS 800
+# define TRANS_RATE_MCS 200
 # define TRANS_TIMEOUT_MCS 1200
 # define REQUIRED_RESET_SERVER_ACKS 2
 # define RESET_SEQUENCE_COUNT 12
